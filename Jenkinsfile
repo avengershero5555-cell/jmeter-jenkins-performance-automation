@@ -4,15 +4,51 @@ pipeline {
         label 'jmeter-linux'
     }
 
+    parameters {
+        choice(
+            name: 'TEST_SCRIPT',
+            choices: ['sample-api-performance-test.jmx'],
+            description: 'Select JMeter script'
+        )
+
+        string(
+            name: 'USERS',
+            defaultValue: '5',
+            description: 'Number of virtual users'
+        )
+
+        string(
+            name: 'RAMPUP',
+            defaultValue: '5',
+            description: 'Ramp-up time in seconds'
+        )
+
+        string(
+            name: 'LOOPS',
+            defaultValue: '2',
+            description: 'Loop count'
+        )
+    }
+
     stages {
         stage('Run JMeter Test') {
             steps {
                 sh '''
+                    set -e
+
                     rm -rf results.jtl HTMLReport
+
+                    echo "Selected Script: $TEST_SCRIPT"
+                    echo "Virtual Users: $USERS"
+                    echo "Ramp-up: $RAMPUP seconds"
+                    echo "Loop Count: $LOOPS"
 
                     /opt/apache-jmeter-5.6.3/bin/jmeter \
                       -n \
-                      -t jmeter/sample-api-performance-test.jmx \
+                      -t "jmeter/$TEST_SCRIPT" \
+                      -Jusers="$USERS" \
+                      -Jrampup="$RAMPUP" \
+                      -Jloops="$LOOPS" \
                       -l results.jtl \
                       -e \
                       -o HTMLReport
@@ -36,6 +72,7 @@ if not rows:
     sys.exit(1)
 
 times = sorted(float(row['elapsed']) for row in rows)
+
 errors = sum(
     row['success'].strip().lower() != 'true'
     for row in rows
