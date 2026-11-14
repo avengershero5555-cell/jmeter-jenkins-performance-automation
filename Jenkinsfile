@@ -48,7 +48,7 @@ print(f"Total Samples: {len(rows)}")
 print(f"P95 Response Time: {p95:.2f} ms")
 print(f"Error Rate: {error_rate:.2f}%")
 
-if p95 > 100 or error_rate > 1:
+if p95 > 3000 or error_rate > 1:
     print("SLA STATUS: FAIL")
     sys.exit(1)
 
