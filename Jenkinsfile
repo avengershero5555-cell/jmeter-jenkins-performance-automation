@@ -5,53 +5,44 @@ pipeline {
     }
 
     parameters {
-        choice(
-            name: 'TEST_SCRIPT',
-            choices: ['sample-api-performance-test.jmx'],
-            description: 'Select JMeter script'
-        )
+        string(name: 'USERS', defaultValue: '5',
+               description: 'Virtual users')
 
-        string(
-            name: 'USERS',
-            defaultValue: '5',
-            description: 'Number of virtual users'
-        )
+        string(name: 'RAMPUP', defaultValue: '5',
+               description: 'Ramp-up seconds')
 
-        string(
-            name: 'RAMPUP',
-            defaultValue: '5',
-            description: 'Ramp-up time in seconds'
-        )
-
-        string(
-            name: 'LOOPS',
-            defaultValue: '2',
-            description: 'Loop count'
-        )
+        string(name: 'LOOPS', defaultValue: '2',
+               description: 'Loop count')
     }
 
     stages {
-        stage('Run JMeter Test') {
+        stage('Run JMeter Scripts Sequentially') {
             steps {
                 sh '''
                     set -e
+                    rm -rf reports
+                    mkdir -p reports
 
-                    rm -rf results.jtl HTMLReport
+                    for script in \
+                      sample-api-performance-test.jmx \
+                      second-api-performance-test.jmx
+                    do
+                        name="${script%.jmx}"
 
-                    echo "Selected Script: $TEST_SCRIPT"
-                    echo "Virtual Users: $USERS"
-                    echo "Ramp-up: $RAMPUP seconds"
-                    echo "Loop Count: $LOOPS"
+                        echo "Running: $script"
 
-                    /opt/apache-jmeter-5.6.3/bin/jmeter \
-                      -n \
-                      -t "jmeter/$TEST_SCRIPT" \
-                      -Jusers="$USERS" \
-                      -Jrampup="$RAMPUP" \
-                      -Jloops="$LOOPS" \
-                      -l results.jtl \
-                      -e \
-                      -o HTMLReport
+                        /opt/apache-jmeter-5.6.3/bin/jmeter \
+                          -n \
+                          -t "jmeter/$script" \
+                          -Jusers="$USERS" \
+                          -Jrampup="$RAMPUP" \
+                          -Jloops="$LOOPS" \
+                          -l "reports/${name}.jtl" \
+                          -e \
+                          -o "reports/${name}-dashboard"
+
+                        echo "Completed: $script"
+                    done
                 '''
             }
         }
@@ -61,35 +52,49 @@ pipeline {
                 sh '''
                     python3 - <<'PY'
 import csv
+import glob
 import math
 import sys
 
-with open('results.jtl', newline='') as file:
-    rows = list(csv.DictReader(file))
+failed = False
 
-if not rows:
-    print("FAIL: No JMeter results found")
+files = sorted(glob.glob('reports/*.jtl'))
+
+if len(files) != 2:
+    print("FAIL: Expected 2 JTL files")
     sys.exit(1)
 
-times = sorted(float(row['elapsed']) for row in rows)
+for path in files:
+    with open(path, newline='') as f:
+        rows = list(csv.DictReader(f))
 
-errors = sum(
-    row['success'].strip().lower() != 'true'
-    for row in rows
-)
+    if not rows:
+        print(f"FAIL: No results in {path}")
+        failed = True
+        continue
 
-p95 = times[math.ceil(len(times) * 0.95) - 1]
-error_rate = errors / len(rows) * 100
+    times = sorted(float(r['elapsed']) for r in rows)
+    errors = sum(
+        r['success'].strip().lower() != 'true'
+        for r in rows
+    )
 
-print(f"Total Samples: {len(rows)}")
-print(f"P95 Response Time: {p95:.2f} ms")
-print(f"Error Rate: {error_rate:.2f}%")
+    p95 = times[math.ceil(len(times) * 0.95) - 1]
+    error_rate = errors / len(rows) * 100
 
-if p95 > 3000 or error_rate > 1:
-    print("SLA STATUS: FAIL")
+    print(f"\\nScript: {path}")
+    print(f"Total Samples: {len(rows)}")
+    print(f"P95: {p95:.2f} ms")
+    print(f"Error Rate: {error_rate:.2f}%")
+
+    if p95 > 3000 or error_rate > 1:
+        print("SLA STATUS: FAIL")
+        failed = True
+    else:
+        print("SLA STATUS: PASS")
+
+if failed:
     sys.exit(1)
-
-print("SLA STATUS: PASS")
 PY
                 '''
             }
@@ -98,7 +103,7 @@ PY
 
     post {
         always {
-            archiveArtifacts artifacts: 'results.jtl,HTMLReport/**',
+            archiveArtifacts artifacts: 'reports/**',
                              allowEmptyArchive: true,
                              fingerprint: true
         }
