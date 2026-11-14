@@ -5,14 +5,23 @@ pipeline {
     }
 
     parameters {
-        string(name: 'USERS', defaultValue: '5',
-               description: 'Virtual users')
+        string(
+            name: 'USERS',
+            defaultValue: '5',
+            description: 'Number of virtual users'
+        )
 
-        string(name: 'RAMPUP', defaultValue: '5',
-               description: 'Ramp-up seconds')
+        string(
+            name: 'RAMPUP',
+            defaultValue: '5',
+            description: 'Ramp-up time in seconds'
+        )
 
-        string(name: 'LOOPS', defaultValue: '2',
-               description: 'Loop count')
+        string(
+            name: 'LOOPS',
+            defaultValue: '2',
+            description: 'Loop count'
+        )
     }
 
     stages {
@@ -20,8 +29,13 @@ pipeline {
             steps {
                 sh '''
                     set -e
+
                     rm -rf reports
                     mkdir -p reports
+
+                    echo "Virtual Users: $USERS"
+                    echo "Ramp-up: $RAMPUP seconds"
+                    echo "Loop Count: $LOOPS"
 
                     for script in \
                       sample-api-performance-test.jmx \
@@ -29,7 +43,9 @@ pipeline {
                     do
                         name="${script%.jmx}"
 
+                        echo "================================"
                         echo "Running: $script"
+                        echo "================================"
 
                         /opt/apache-jmeter-5.6.3/bin/jmeter \
                           -n \
@@ -74,6 +90,7 @@ for path in files:
         continue
 
     times = sorted(float(r['elapsed']) for r in rows)
+
     errors = sum(
         r['success'].strip().lower() != 'true'
         for r in rows
@@ -84,7 +101,7 @@ for path in files:
 
     print(f"\\nScript: {path}")
     print(f"Total Samples: {len(rows)}")
-    print(f"P95: {p95:.2f} ms")
+    print(f"P95 Response Time: {p95:.2f} ms")
     print(f"Error Rate: {error_rate:.2f}%")
 
     if p95 > 3000 or error_rate > 1:
@@ -106,6 +123,24 @@ PY
             archiveArtifacts artifacts: 'reports/**',
                              allowEmptyArchive: true,
                              fingerprint: true
+
+            publishHTML(target: [
+                reportDir: 'reports/sample-api-performance-test-dashboard',
+                reportFiles: 'index.html',
+                reportName: 'JMeter Script 1 Report',
+                keepAll: true,
+                alwaysLinkToLastBuild: true,
+                allowMissing: true
+            ])
+
+            publishHTML(target: [
+                reportDir: 'reports/second-api-performance-test-dashboard',
+                reportFiles: 'index.html',
+                reportName: 'JMeter Script 2 Report',
+                keepAll: true,
+                alwaysLinkToLastBuild: true,
+                allowMissing: true
+            ])
         }
     }
 }
